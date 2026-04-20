@@ -11,6 +11,7 @@
 
 #include "display.h"
 
+#include <stdint.h>
 #include <string.h>
 
 #include <zephyr/drivers/gpio.h>
@@ -34,7 +35,8 @@
 #define DISPLAY_MUTEX_LOCK_TIMEOUT_MS 100
 
 /**
- * @brief Obtém o resultado de um bitwise and entre o campo e a máscara desejados.
+ * @brief Obtém o resultado de um bitwise and entre o campo e a máscara
+ * desejados.
  */
 #define CHECK_MASK(target_field, mask) ((target_field) & (mask))
 
@@ -54,8 +56,8 @@
 #define INVERT_MASK(target_field, mask) (target_field) ^= (mask)
 
 /**
- * @brief Cria o mutex de controle da VRAM, para evitar que mais de um módulo acesse a região ao
- * mesmo tempo.
+ * @brief Cria o mutex de controle da VRAM, para evitar que mais de um módulo
+ * acesse a região ao mesmo tempo.
  *
  * @note A VRAM representa o conteúdo enviado ao display físico.
  */
@@ -71,7 +73,7 @@ K_MUTEX_DEFINE(vram_mutex);
  * @brief Estrutura que representa o SPI do display.
  */
 static const struct spi_dt_spec display_spi =
-	SPI_DT_SPEC_GET(DT_NODELABEL(display_spi), SPI_FLAGS, 0);
+    SPI_DT_SPEC_GET(DT_NODELABEL(display_spi), SPI_FLAGS);
 
 /**
  * @brief Buffer de comandos, com tamanho máximo de 2 comandos sequenciais.
@@ -82,16 +84,16 @@ static struct spi_buf cmds[1];
  * @brief Conjunto de buffers para a SPI.
  */
 static struct spi_buf_set tx_data = {
-	.buffers = NULL,
-	.count = 1,
+    .buffers = NULL,
+    .count = 1,
 };
 
 /**
  * @brief Buffer de dados de uma página para RAM do display..
  */
 static struct spi_buf page_data = {
-	.buf = NULL,
-	.len = SCR_W,
+    .buf = NULL,
+    .len = SCR_W * 2,
 };
 
 /**
@@ -100,7 +102,8 @@ static struct spi_buf page_data = {
 static inline void set_command(void) { tx_data.buffers = cmds; }
 
 /**
- * @brief Configura a comunicação SPI com o display para envio de dados para RAM.
+ * @brief Configura a comunicação SPI com o display para envio de dados para
+ * RAM.
  */
 static inline void set_data(void) { tx_data.buffers = &page_data; }
 
@@ -264,8 +267,6 @@ void display_init(void) {
 
   memset(self.screen_buffer, 0x00, sizeof(self.screen_buffer));
 #elif CONFIG_DISPLAY_SPI == 1 /* #if CONFIG_DISPLAY_VIRTUAL == 1 */
-  gpio_pin_configure_dt(&data_command, GPIO_OUTPUT_INACTIVE);
-
   while (!spi_is_ready_dt(&display_spi)) {
     /** Espera a comunicação SPI estar pronta. */
   }
@@ -356,13 +357,16 @@ void display_flush(void) {
     display_send_cmd(DISPLAY_CMD_PAGE_ADDR + page);
     display_send_cmd(DISPLAY_CMD_RMW_START);
 
-    uintptr_t current_page = self.draw_buffer + (page << 7);
+    uint8_t *current_page = self.draw_buffer + (page << 7);
 
-    uint16_t three_wire_data_buf[page_data.len] = {0};
-    for (size_t i = 0; i < page_data.len; i++) {
-      three_wire_data_buf[i] = BIT(9) | current_page[i];
+    uint16_t three_wire_data_buf[SCR_W];
+    memset(three_wire_data_buf, 0, sizeof(three_wire_data_buf));
+    for (size_t i = 0; i < SCR_W; i++) {
+      three_wire_data_buf[i] = BIT(8) | current_page[i];
     }
     page_data.buf = three_wire_data_buf;
+    page_data.len =
+        sizeof(three_wire_data_buf);
 
     display_send_page();
 
@@ -565,8 +569,8 @@ void display_set_contrast(uint8_t amount) {
 
 static void display_send_cmd(enum display_commands cmd) {
   uint16_t three_wire_buf[] = {cmd};
-  cmds[0].buf = buf;
-  cmds[0].len = 1;
+  cmds[0].buf = three_wire_buf;
+  cmds[0].len = sizeof(three_wire_buf);
 
   set_command();
   spi_write_dt(&display_spi, &tx_data);
@@ -575,8 +579,8 @@ static void display_send_cmd(enum display_commands cmd) {
 static void display_send_double_cmd(enum display_commands cmd,
                                     uint8_t follow_up) {
   uint16_t three_wire_buf[] = {cmd, follow_up};
-  cmds[0].buf = buf;
-  cmds[0].len = 2;
+  cmds[0].buf = three_wire_buf;
+  cmds[0].len = sizeof(three_wire_buf);
 
   set_command();
   spi_write_dt(&display_spi, &tx_data);
